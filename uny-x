@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# uny-x shell wrapper — resolve from symlink target
+PROJECT_DIR="$(dirname "$(readlink -f "$0")")"
+export PATH="/opt/data/home/.local/bin:$PATH"
+cd "$PROJECT_DIR" || exit 1
+source /opt/data/.venv-x/bin/activate 2>/dev/null || source .venv-x/bin/activate 2>/dev/null
+exec python3 -m unyx "$@"
