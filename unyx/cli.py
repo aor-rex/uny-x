@@ -40,6 +40,12 @@ def main(argv: Optional[list[str]] = None) -> None:
     p_unlike = sub.add_parser("unlike", help="Unlike a tweet")
     p_unlike.add_argument("tweet_id", help="Tweet ID or URL")
 
+    p_follow = sub.add_parser("follow", help="Follow a user")
+    p_follow.add_argument("username")
+
+    p_unfollow = sub.add_parser("unfollow", help="Unfollow a user")
+    p_unfollow.add_argument("username")
+
     p_dm = sub.add_parser("dm", help="Send a DM (NYI)")
     p_dm.add_argument("username")
     p_dm.add_argument("text", nargs="+")
@@ -97,6 +103,12 @@ def _run(args) -> dict:
 
         if args.command == "dm":
             return {"error": "DM not yet implemented — coming soon"}
+
+        if args.command == "follow":
+            return cl.follow(extract_username(args.username))
+
+        if args.command == "unfollow":
+            return cl.unfollow(extract_username(args.username))
 
         if args.command == "read":
             return cl.read(extract_tweet_id(args.tweet_id))

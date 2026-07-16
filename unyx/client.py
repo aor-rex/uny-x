@@ -1,6 +1,8 @@
-"""uny-x client — direct httpx against X internal GraphQL API.
+"""uny-x client — direct httpx against X internal API.
 
-Uses cookies from a logged-in X browser session.  No twikit / tweety.
+Uses cookies from a logged-in X browser session.
+GraphQL for most ops, v1.1 for friendships (follow/unfollow).
+No twikit / tweety dependency.
 """
 
 import json
@@ -14,63 +16,52 @@ from typing import Optional
 import httpx
 
 # ---------------------------------------------------------------------------
-# GraphQL query IDs  (extracted from main.bcd2a32a.js)
+# Constants  (from twikit — see .venv-x/lib/python3.13/site-packages/twikit/constants.py)
 # ---------------------------------------------------------------------------
 
-QUERIES = {
-    "CreateTweet":            ("hIL9XdleMYEtVXOZVbr8Bg", "CreateTweet"),
-    "DeleteTweet":            ("nxpZCY2K-I6QoFHAHeojFQ", "DeleteTweet"),
-    "FavoriteTweet":          ("lI07N6Otwv1PhnEgXILM7A", "FavoriteTweet"),
-    "UnfavoriteTweet":        ("ZYKSe-w7KEslx3JhSIk5LA", "UnfavoriteTweet"),
-    "CreateRetweet":          ("mbRO74GrOvSfRcJnlMapnQ", "CreateRetweet"),
-    "DeleteRetweet":          ("ZyZigVsNiFO6v1dEks1eWg", "DeleteRetweet"),
-    "UserByScreenName":       ("2qvSHpkWTMS9i0zJAwDNiA", "UserByScreenName"),
-    "UserByRestId":           ("DaeC_2LfMgwCujE03HSZtw", "UserByRestId"),
-    "TweetDetail":            ("rZA6K31W4E90vZKBmxXV3g", "TweetDetail"),
-    "TweetResultByRestId":    ("4hhGRbehkcUVTKf8n0f0xw", "TweetResultByRestId"),
-    "SearchTimeline":         ("hz_94eVAtrtQo_vO3my7Rw", "SearchTimeline"),
-    "CreateBookmark":         ("aoDbu3RHznuiSkQ9aNM67Q", "CreateBookmark"),
-    "DeleteBookmark":         ("Wlmlj2-xzyS1GN3a6cj-mQ", "DeleteBookmark"),
-    "UserTweets":             ("6r5OLCC_wFH4CpRyXKuAmQ", "UserTweets"),
-    "UserTweetsAndReplies":   ("klja8a2iJX_3to5RdfVlgw", "UserTweetsAndReplies"),
-    "Followers":              ("18SNsfvwgu2CYIweeUVHAw", "Followers"),
-    "Following":              ("PEIBUtChvR2i_NZCxbK3fA", "Following"),
-    "Likes":                  ("4X8QeWbeJ0jwGHaXSxExRw", "Likes"),
-    "Viewer":                 ("u4ni7JqpqdAQxWQfkLsdUQ", "Viewer"),
-    "ConnectTabTimeline":     ("5fKmzgJzgNxisAdyoJTPdg", "ConnectTabTimeline"),
-    "BookmarkSearchTimeline": ("SpDsqmz6FfYESd1e7TPcAw", "BookmarkSearchTimeline"),
-}
+TOKEN = (
+    "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
+    "%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+)
+DOMAIN = "x.com"
 
-FEATURES = {
+FEATURES: dict = {
     "creator_subscriptions_tweet_preview_api_enabled": True,
-    "communities_web_enable_tweet_actions": True,
     "c9s_tweet_anatomy_moderator_badge_enabled": True,
-    "articles_preview_enabled": True,
     "tweetypie_unmention_optimization_enabled": True,
     "responsive_web_edit_tweet_api_enabled": True,
     "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
     "view_counts_everywhere_api_enabled": True,
     "longform_notetweets_consumption_enabled": True,
+    "responsive_web_twitter_article_tweet_consumption_enabled": True,
     "tweet_awards_web_tipping_enabled": False,
-    "freedom_of_speech_not_reach_fetch_enabled": False,
-    "standardized_nudges_misinfo": True,
-    "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": False,
+    "longform_notetweets_rich_text_read_enabled": True,
+    "longform_notetweets_inline_media_enabled": True,
+    "rweb_video_timestamps_enabled": True,
     "responsive_web_graphql_exclude_directive_enabled": True,
+    "verified_phone_label_enabled": False,
+    "freedom_of_speech_not_reach_fetch_enabled": True,
+    "standardized_nudges_misinfo": True,
+    "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+    "responsive_web_media_download_video_enabled": False,
     "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
     "responsive_web_graphql_timeline_navigation_enabled": True,
     "responsive_web_enhance_cards_enabled": False,
 }
 
-FIELD_TOGGLES = [
-    "withArticleRichContentState",
-    "withArticlePlainText",
-    "withArticleSummaryText",
-    "withArticleVoiceOver",
-    "withGrokAnalyze",
-    "withDisallowedReplyControls",
-    "withPayments",
-    "withAuxiliaryUserLabels",
-]
+USER_FEATURES: dict = {
+    "hidden_profile_likes_enabled": True,
+    "hidden_profile_subscriptions_enabled": True,
+    "responsive_web_graphql_exclude_directive_enabled": True,
+    "verified_phone_label_enabled": False,
+    "subscriptions_verification_info_is_identity_verified_enabled": True,
+    "subscriptions_verification_info_verified_since_enabled": True,
+    "highlights_tweets_tab_ui_enabled": True,
+    "responsive_web_twitter_article_notes_tab_enabled": False,
+    "creator_subscriptions_tweet_preview_api_enabled": True,
+    "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+    "responsive_web_graphql_timeline_navigation_enabled": True,
+}
 
 HEADERS_BASE = {
     "User-Agent": (
@@ -78,16 +69,62 @@ HEADERS_BASE = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36"
     ),
-    "Authorization": (
-        "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
-        "%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
-    ),
+    "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json",
-    "Origin": "https://x.com",
-    "Referer": "https://x.com/",
+    "X-Twitter-Auth-Type": "OAuth2Session",
+    "X-Twitter-Active-User": "yes",
+    "Origin": f"https://{DOMAIN}",
+    "Referer": f"https://{DOMAIN}/",
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9",
 }
+
+# ---------------------------------------------------------------------------
+# GraphQL endpoint IDs (from twikit gql.py)
+# ---------------------------------------------------------------------------
+
+GQL_EP = {
+    # Mutations (POST)
+    "CreateTweet":       "SiM_cAu83R0wnrpmKQQSEw/CreateTweet",
+    "DeleteTweet":       "VaenaVgh5q5ih7kvyVjgtg/DeleteTweet",
+    "FavoriteTweet":     "lI07N6Otwv1PhnEgXILM7A/FavoriteTweet",
+    "UnfavoriteTweet":   "ZYKSe-w7KEslx3JhSIk5LA/UnfavoriteTweet",
+    "CreateRetweet":     "ojPdsZsimiJrUGLR1sjUtA/CreateRetweet",
+    "DeleteRetweet":     "iQtK4dl5hBmXewYZuEOKVw/DeleteRetweet",
+    "CreateBookmark":    "aoDbu3RHznuiSkQ9aNM67Q/CreateBookmark",
+    "DeleteBookmark":    "Wlmlj2-xzyS1GN3a6cj-mQ/DeleteBookmark",
+    "HomeTimeline":      "-X_hcgQzmHGl29-UXxz4sw/HomeTimeline",
+    "HomeLatestTimeline":"U0cdisy7QFIoTfu3-Okw0A/HomeLatestTimeline",
+    # Reads (GET)
+    "UserByScreenName":  "NimuplG1OB7Fd2btCLdBOw/UserByScreenName",
+    "UserByRestId":      "tD8zKvQzwY3kdx5yz6YmOw/UserByRestId",
+    "TweetDetail":       "U0HTv-bAWTBYylwEMT7x5A/TweetDetail",
+    "TweetResultByRestId":"Xl5pC_lBk_gcO2ItU39DQw/TweetResultByRestId",
+    "SearchTimeline":    "flaR-PUMshxFWZWPNpq4zA/SearchTimeline",
+    "UserTweets":        "QWF3SzpHmykQHsQMixG0cg/UserTweets",
+    "UserTweetsAndReplies":"vMkJyzx1wdmvOeeNG0n6Wg/UserTweetsAndReplies",
+    "UserMedia":         "2tLOJWwGuCTytDrGBg8VwQ/UserMedia",
+    "Likes":             "IohM3gxQHfvWePH5E3KuNA/Likes",
+    "Followers":         "gC_lyAxZOptAMLCJX5UhWw/Followers",
+    "Following":         "2vUj-_Ek-UmBVDNtd8OnQA/Following",
+    "Bookmarks":         "qToeLeMs43Q8cr7tRYXmaQ/Bookmarks",
+    # Custom-mapped (not in twikit — may need refresh)
+    "ConnectTabTimeline":"5fKmzgJzgNxisAdyoJTPdg/ConnectTabTimeline",
+    "BookmarkSearchTimeline":"SpDsqmz6FfYESd1e7TPcAw/BookmarkSearchTimeline",
+}
+
+# Operations that use GET instead of POST
+_GQL_GET = frozenset({
+    "UserByScreenName", "UserByRestId",
+    "TweetDetail", "TweetResultByRestId",
+    "UserTweets", "UserTweetsAndReplies", "UserMedia", "Likes",
+    "Following",
+    "Bookmarks",
+})
+
+# v1.1 endpoint URLs
+V11_FRIENDSHIPS_CREATE = f"https://{DOMAIN}/i/api/1.1/friendships/create.json"
+V11_FRIENDSHIPS_DESTROY = f"https://{DOMAIN}/i/api/1.1/friendships/destroy.json"
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -102,7 +139,7 @@ def random_delay(min_s: float = MIN_DELAY, max_s: float = MAX_DELAY) -> None:
 
 
 _TWEET_URL_RE = re.compile(
-    r'(?:https?://)?(?:www\.)?(?:x\.com|twitter\.com)/\w+/status/(\d+)'
+    r"(?:https?://)?(?:www\.)?(?:x\.com|twitter\.com)/\w+/status/(\d+)"
 )
 
 
@@ -115,7 +152,7 @@ def extract_tweet_id(value: str) -> str:
     raise ValueError(f"Can't extract tweet ID from: {value}")
 
 
-_USERNAME_RE = re.compile(r'^@?(\w{1,15})$')
+_USERNAME_RE = re.compile(r"^@?(\w{1,15})$")
 
 
 def extract_username(value: str) -> str:
@@ -123,6 +160,16 @@ def extract_username(value: str) -> str:
     if m:
         return m.group(1)
     raise ValueError(f"Invalid username: {value}")
+
+
+def _flatten_params(params: dict) -> dict:
+    """Convert dict/list values to JSON strings (httpx handles URL encoding)."""
+    flat = {}
+    for key, value in params.items():
+        if isinstance(value, (list, dict)):
+            value = json.dumps(value, separators=(",", ":"))
+        flat[key] = value
+    return flat
 
 
 # ---------------------------------------------------------------------------
@@ -136,49 +183,94 @@ class UnyxClient:
     """Direct X internal API client."""
 
     def __init__(self):
-        self._cookies: dict = {}
+        self._cookies: dict[str, str] = {}
         self._ct0: str = ""
         self._user_id: Optional[str] = None
         self._screen_name: Optional[str] = None
 
     # -- auth ----------------------------------------------------------------
 
-    def load_cookies(self, path: str = str(COOKIES_PATH)) -> bool:
+    def load_cookies(self, path: str | Path = "") -> bool:
         """Load cookies from a Firefox JSON-format file."""
-        p = Path(path)
+        p = Path(path) if path else COOKIES_PATH
         if not p.exists():
             return False
         with open(p) as f:
             raw = json.load(f)
-        self._cookies = {}
-        for c in raw:
-            self._cookies[c["name"]] = c["value"]
+        self._cookies = {c["name"]: c["value"] for c in raw}
         self._ct0 = self._cookies.get("ct0", "")
         return True
 
     def _headers(self) -> dict:
         h = dict(HEADERS_BASE)
         if self._ct0:
-            h["X-CSRF-Token"] = self._ct0
+            h["X-Csrf-Token"] = self._ct0
         return h
 
-    def _gql(self, name: str, variables: dict) -> dict:
-        """Execute a GraphQL operation via POST."""
-        qid, op_name = QUERIES[name]
-        url = f"https://x.com/i/api/graphql/{qid}/{op_name}"
-        payload = {
-            "variables": variables,
-            "features": FEATURES,
-            "fieldToggles": FIELD_TOGGLES,
-        }
-        return self._request("POST", url, json=payload)
+    # -- low-level request helpers -------------------------------------------
 
-    def _request(self, method: str, url: str, **kwargs) -> dict:
-        """Make an HTTP request with cookie auth."""
+    def _gql(self, name: str, variables: dict,
+              features: dict | None = None,
+              extra_params: dict | None = None) -> dict:
+        """Execute a GraphQL operation — GET for reads, POST for writes."""
+        if name in _GQL_GET:
+            return self._gql_get(name, variables, features, extra_params)
+        else:
+            return self._gql_post(name, variables, features, extra_params)
+
+    def _gql_get(self, name: str, variables: dict,
+                  features: dict | None = None,
+                  extra_params: dict | None = None) -> dict:
+        """GraphQL query via GET (read operations)."""
+        ep = GQL_EP[name]
+        url = f"https://{DOMAIN}/i/api/graphql/{ep}"
+        params: dict = {"variables": variables}
+        if features is not None:
+            params["features"] = features
+        if extra_params is not None:
+            params.update(extra_params)
+        return self._request("GET", url, params=_flatten_params(params))
+
+    def _gql_post(self, name: str, variables: dict,
+                   features: dict | None = None,
+                   extra_data: dict | None = None) -> dict:
+        """GraphQL mutation via POST."""
+        ep = GQL_EP[name]
+        url = f"https://{DOMAIN}/i/api/graphql/{ep}"
+        body: dict = {"variables": variables}
+        # twikit includes queryId in the POST body
+        qid = ep.split("/")[0]
+        body["queryId"] = qid
+        if features is not None:
+            body["features"] = features
+        if extra_data is not None:
+            body.update(extra_data)
+        return self._request("POST", url, json=body)
+
+    def _v11_post(self, url: str, data: dict) -> dict:
+        """v1.1 API POST (form-encoded)."""
+        h = self._headers()
+        h["Content-Type"] = "application/x-www-form-urlencoded"
         with httpx.Client() as client:
             resp = client.request(
-                method,
-                url,
+                "POST", url,
+                headers=h,
+                cookies=self._cookies,
+                data=data,
+                follow_redirects=True,
+                timeout=30,
+            )
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"X v1.1 error {resp.status_code}: {resp.text[:300]}"
+            )
+        return resp.json()
+
+    def _request(self, method: str, url: str, **kwargs) -> dict:
+        """Raw HTTP request with cookie auth."""
+        with httpx.Client() as client:
+            resp = client.request(
+                method, url,
                 headers=self._headers(),
                 cookies=self._cookies,
                 follow_redirects=True,
@@ -190,25 +282,36 @@ class UnyxClient:
                 f"X API error {resp.status_code}: {resp.text[:300]}"
             )
         data = resp.json()
-        if "errors" in data:
-            # Non-fatal errors may still have data
-            pass
+        # GraphQL may return partial data + errors (e.g. already-liked)
+        if "errors" in data and data.get("data") is None:
+            raise RuntimeError(
+                f"X API error in response: "
+                f"{json.dumps(data['errors'][:3], indent=2)}"
+            )
         return data
 
-    # -- public API ----------------------------------------------------------
+    # -- auth ----------------------------------------------------------------
 
     def login_from_cookies(self) -> bool:
-        """Verify cookies are valid by fetching current user."""
+        """Verify cookies by fetching the authenticated user's profile."""
         if not self.load_cookies():
             return False
         try:
-            result = self._gql("Viewer", {})
-            viewer = result.get("data", {}).get("viewer", {})
-            user_results = viewer.get("user_results", {}).get("result", {})
-            self._user_id = user_results.get("rest_id")
-            core = user_results.get("core", {})
-            self._screen_name = core.get("screen_name")
-            print(f"  [uny-x] session restored — @{self._screen_name}", file=sys.stderr)
+            # Use UserByScreenName to test auth — the cookies include
+            # session info for our account
+            result = self._gql(
+                "UserByScreenName",
+                {"screen_name": "ryu_ngmi",
+                 "withSafetyModeUserFields": True},
+                USER_FEATURES,
+                {"fieldToggles": {"withAuxiliaryUserLabels": False}},
+            )
+            u = result.get("data", {}).get("user", {}).get("result", {})
+            self._user_id = u.get("rest_id", "")
+            core = u.get("core", {})
+            self._screen_name = core.get("screen_name", "ryu_ngmi")
+            print(f"  [uny-x] session restored — @{self._screen_name}",
+                  file=sys.stderr)
             return True
         except Exception as exc:
             print(f"  [uny-x] cookie restore failed: {exc}", file=sys.stderr)
@@ -218,21 +321,31 @@ class UnyxClient:
         if self._user_id is not None:
             return
         if not self.login_from_cookies():
-            raise RuntimeError("Not logged in. Run `uny-x login` first, or pass credentials.")
+            raise RuntimeError(
+                "Not logged in. Place a cookies.json (Firefox JSON export) "
+                "in the project root."
+            )
+
+    # -- public API ----------------------------------------------------------
+
+    # ----- writes (POST mutations) -----------------------------------------
 
     def post(self, text: str):
         self._ensure_authed()
         random_delay()
-        # For CreateTweet variables, these are the required fields
         vars_ = {
             "tweet_text": text,
-            "media": [],
-            "semantic_annotation_ids": [],
             "dark_request": False,
-            "disallowed_reply_options": None,
+            "media": {"media_entities": [], "possibly_sensitive": False},
+            "semantic_annotation_ids": [],
         }
-        result = self._gql("CreateTweet", vars_)
-        tweet = result.get("data", {}).get("create_tweet", {}).get("tweet_results", {}).get("result", {})
+        result = self._gql("CreateTweet", vars_, FEATURES)
+        tweet = (
+            result.get("data", {})
+            .get("create_tweet", {})
+            .get("tweet_results", {})
+            .get("result", {})
+        )
         return {"id": tweet.get("rest_id", ""), "text": text}
 
     def reply(self, tweet_id: str, text: str):
@@ -240,39 +353,103 @@ class UnyxClient:
         random_delay(0.5, 1.5)
         vars_ = {
             "tweet_text": text,
-            "reply": {"in_reply_to_tweet_id": tweet_id, "exclude_reply_user_ids": []},
-            "media": [],
-            "semantic_annotation_ids": [],
             "dark_request": False,
-            "disallowed_reply_options": None,
+            "media": {"media_entities": [], "possibly_sensitive": False},
+            "semantic_annotation_ids": [],
+            "reply": {
+                "in_reply_to_tweet_id": tweet_id,
+                "exclude_reply_user_ids": [],
+            },
         }
-        result = self._gql("CreateTweet", vars_)
-        tweet = result.get("data", {}).get("create_tweet", {}).get("tweet_results", {}).get("result", {})
-        return {"id": tweet.get("rest_id", ""), "text": text, "reply_to": tweet_id}
+        result = self._gql("CreateTweet", vars_, FEATURES)
+        tweet = (
+            result.get("data", {})
+            .get("create_tweet", {})
+            .get("tweet_results", {})
+            .get("result", {})
+        )
+        return {"id": tweet.get("rest_id", ""), "text": text,
+                "reply_to": tweet_id}
 
     def like(self, tweet_id: str):
         self._ensure_authed()
         random_delay(0.3, 1.0)
-        self._gql("FavoriteTweet", {"tweet_id": tweet_id})
+        vars_ = {"tweet_id": tweet_id}
+        self._gql("FavoriteTweet", vars_)
         return {"liked": tweet_id}
 
     def unlike(self, tweet_id: str):
         self._ensure_authed()
         random_delay(0.3, 1.0)
-        self._gql("UnfavoriteTweet", {"tweet_id": tweet_id})
+        vars_ = {"tweet_id": tweet_id}
+        self._gql("UnfavoriteTweet", vars_)
         return {"unliked": tweet_id}
 
     def retweet(self, tweet_id: str):
         self._ensure_authed()
         random_delay(0.3, 1.0)
-        self._gql("CreateRetweet", {"tweet_id": tweet_id})
+        vars_ = {"tweet_id": tweet_id, "dark_request": False}
+        self._gql("CreateRetweet", vars_)
         return {"retweeted": tweet_id}
 
     def delete(self, tweet_id: str):
         self._ensure_authed()
         random_delay(0.3, 1.0)
-        self._gql("DeleteTweet", {"tweet_id": tweet_id})
+        vars_ = {"tweet_id": tweet_id, "dark_request": False}
+        self._gql("DeleteTweet", vars_)
         return {"deleted": tweet_id}
+
+    def follow(self, username: str):
+        """Follow a user by screen_name."""
+        self._ensure_authed()
+        random_delay(0.5, 1.5)
+        user_info = self.user(username)
+        uid = user_info["id"]
+        random_delay()
+        data = {
+            "include_profile_interstitial_type": "1",
+            "include_blocking": "1",
+            "include_blocked_by": "1",
+            "include_followed_by": "1",
+            "include_want_retweets": "1",
+            "include_mute_edge": "1",
+            "include_can_dm": "1",
+            "include_can_media_tag": "1",
+            "include_ext_is_blue_verified": "1",
+            "include_ext_verified_type": "1",
+            "include_ext_profile_image_shape": "1",
+            "skip_status": "1",
+            "user_id": uid,
+        }
+        resp = self._v11_post(V11_FRIENDSHIPS_CREATE, data)
+        return {"followed": username, "user_id": uid}
+
+    def unfollow(self, username: str):
+        """Unfollow a user by screen_name."""
+        self._ensure_authed()
+        random_delay(0.5, 1.5)
+        user_info = self.user(username)
+        uid = user_info["id"]
+        random_delay()
+        data = {
+            "include_profile_interstitial_type": "1",
+            "include_blocking": "1",
+            "include_blocked_by": "1",
+            "include_followed_by": "1",
+            "include_want_retweets": "1",
+            "include_mute_edge": "1",
+            "include_can_dm": "1",
+            "include_can_media_tag": "1",
+            "include_ext_is_blue_verified": "1",
+            "include_ext_verified_type": "1",
+            "include_ext_profile_image_shape": "1",
+            "skip_status": "1",
+            "user_id": uid,
+        }
+        resp = self._v11_post(V11_FRIENDSHIPS_DESTROY, data)
+        return {"unfollowed": username, "user_id": uid}
+
+    # ----- reads (GET queries) ---------------------------------------------
 
     def read(self, tweet_id: str):
         self._ensure_authed()
@@ -291,8 +468,15 @@ class UnyxClient:
 
     def user(self, username: str):
         self._ensure_authed()
-        vars_ = {"screen_name": username, "withSafetyModeUserFields": True}
-        result = self._gql("UserByScreenName", vars_)
+        vars_ = {
+            "screen_name": username,
+            "withSafetyModeUserFields": True,
+        }
+        result = self._gql(
+            "UserByScreenName", vars_,
+            USER_FEATURES,
+            {"fieldToggles": {"withAuxiliaryUserLabels": False}},
+        )
         u = result.get("data", {}).get("user", {}).get("result", {})
         core = u.get("core", {})
         legacy = u.get("legacy", {})
@@ -315,54 +499,74 @@ class UnyxClient:
             "querySource": "typed_query",
             "product": "Top",
         }
-        result = self._gql("SearchTimeline", vars_)
+        result = self._gql("SearchTimeline", vars_, FEATURES)
         return {"query": query, "raw": result}
 
     def timeline(self, count: int = 20):
+        """Home timeline (Following feed)."""
         self._ensure_authed()
-        result = self._gql("ConnectTabTimeline", {})
+        vars_ = {
+            "count": count,
+            "includePromotedContent": True,
+            "latestControlAvailable": True,
+            "requestContext": "launch",
+            "withCommunity": True,
+            "seenTweetIds": [],
+        }
+        result = self._gql("HomeTimeline", vars_, FEATURES)
         return {"raw": result}
 
     def bookmarks(self, count: int = 20):
         self._ensure_authed()
-        vars_ = {"count": count, "includePromotedContent": False}
-        result = self._gql("BookmarkSearchTimeline", vars_)
+        vars_ = {"count": count, "includePromotedContent": True}
+        features = dict(FEATURES)
+        features["graphql_timeline_v2_bookmark_timeline"] = True
+        result = self._gql("Bookmarks", vars_, features)
         return {"raw": result}
 
-    def tweets(self, username: str, keyword: Optional[str] = None, count: int = 20):
+    def tweets(self, username: str, keyword: Optional[str] = None,
+               count: int = 20):
         self._ensure_authed()
-        # First get user id
         user_info = self.user(username)
         uid = user_info["id"]
         vars_ = {
             "userId": uid,
             "count": count,
-            "includePromotedContent": False,
-            "withQuickPromote": False,
+            "includePromotedContent": True,
+            "withQuickPromoteEligibilityTweetFields": True,
             "withVoice": True,
             "withV2Timeline": True,
         }
-        result = self._gql("UserTweets", vars_)
+        result = self._gql("UserTweets", vars_, FEATURES)
         return {"username": username, "raw": result}
 
     def followers(self, username: str, count: int = 20):
         self._ensure_authed()
         user_info = self.user(username)
         uid = user_info["id"]
-        vars_ = {"userId": uid, "count": count, "includePromotedContent": False}
-        result = self._gql("Followers", vars_)
+        vars_ = {
+            "userId": uid,
+            "count": count,
+            "includePromotedContent": False,
+        }
+        result = self._gql("Followers", vars_, FEATURES)
         return {"username": username, "raw": result}
 
     def following(self, username: str, count: int = 20):
         self._ensure_authed()
         user_info = self.user(username)
         uid = user_info["id"]
-        vars_ = {"userId": uid, "count": count, "includePromotedContent": False}
-        result = self._gql("Following", vars_)
+        vars_ = {
+            "userId": uid,
+            "count": count,
+            "includePromotedContent": False,
+        }
+        result = self._gql("Following", vars_, FEATURES)
         return {"username": username, "raw": result}
 
+    # -- login stub ----------------------------------------------------------
+
     def login(self, username: str, password: str) -> dict:
-        """Not supported — use cookies instead."""
         raise RuntimeError(
             "Username/password login is not available. "
             "Export cookies from a browser session and save to cookies.json, "
