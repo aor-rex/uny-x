@@ -77,6 +77,15 @@ HEADERS_BASE = {
     "Referer": f"https://{DOMAIN}/",
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Ch-Ua": (
+        '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"'
+    ),
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
 }
 
 # ---------------------------------------------------------------------------
@@ -130,8 +139,11 @@ V11_FRIENDSHIPS_DESTROY = f"https://{DOMAIN}/i/api/1.1/friendships/destroy.json"
 # helpers
 # ---------------------------------------------------------------------------
 
-MIN_DELAY = 0.2
-MAX_DELAY = 3.0
+MIN_DELAY = 30.0
+MAX_DELAY = 90.0
+
+SHORT_MIN = 2.0
+SHORT_MAX = 5.0
 
 
 def random_delay(min_s: float = MIN_DELAY, max_s: float = MAX_DELAY) -> None:
@@ -356,7 +368,7 @@ class UnyxClient:
 
     def reply(self, tweet_id: str, text: str):
         self._ensure_authed()
-        random_delay(0.5, 1.5)
+        random_delay()
         vars_ = {
             "tweet_text": text,
             "dark_request": False,
@@ -379,28 +391,28 @@ class UnyxClient:
 
     def like(self, tweet_id: str):
         self._ensure_authed()
-        random_delay(0.3, 1.0)
+        random_delay()
         vars_ = {"tweet_id": tweet_id}
         self._gql("FavoriteTweet", vars_)
         return {"liked": tweet_id}
 
     def unlike(self, tweet_id: str):
         self._ensure_authed()
-        random_delay(0.3, 1.0)
+        random_delay()
         vars_ = {"tweet_id": tweet_id}
         self._gql("UnfavoriteTweet", vars_)
         return {"unliked": tweet_id}
 
     def retweet(self, tweet_id: str):
         self._ensure_authed()
-        random_delay(0.3, 1.0)
+        random_delay()
         vars_ = {"tweet_id": tweet_id, "dark_request": False}
         self._gql("CreateRetweet", vars_)
         return {"retweeted": tweet_id}
 
     def delete(self, tweet_id: str):
         self._ensure_authed()
-        random_delay(0.3, 1.0)
+        random_delay()
         vars_ = {"tweet_id": tweet_id, "dark_request": False}
         self._gql("DeleteTweet", vars_)
         return {"deleted": tweet_id}
@@ -408,7 +420,7 @@ class UnyxClient:
     def follow(self, username: str):
         """Follow a user by screen_name."""
         self._ensure_authed()
-        random_delay(0.5, 1.5)
+        random_delay()
         user_info = self.user(username)
         uid = user_info["id"]
         random_delay()
@@ -433,7 +445,7 @@ class UnyxClient:
     def unfollow(self, username: str):
         """Unfollow a user by screen_name."""
         self._ensure_authed()
-        random_delay(0.5, 1.5)
+        random_delay()
         user_info = self.user(username)
         uid = user_info["id"]
         random_delay()
@@ -459,6 +471,7 @@ class UnyxClient:
 
     def read(self, tweet_id: str):
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         vars_ = {
             "tweetId": tweet_id,
             "includePromotedContent": False,
@@ -474,6 +487,7 @@ class UnyxClient:
 
     def user(self, username: str):
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         vars_ = {
             "screen_name": username,
             "withSafetyModeUserFields": True,
@@ -499,6 +513,7 @@ class UnyxClient:
 
     def search(self, query: str, count: int = 20):
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         vars_ = {
             "rawQuery": query,
             "count": count,
@@ -511,6 +526,7 @@ class UnyxClient:
     def timeline(self, count: int = 20):
         """Home timeline (Following feed)."""
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         vars_ = {
             "count": count,
             "includePromotedContent": True,
@@ -524,6 +540,7 @@ class UnyxClient:
 
     def bookmarks(self, count: int = 20):
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         vars_ = {"count": count, "includePromotedContent": True}
         features = dict(FEATURES)
         features["graphql_timeline_v2_bookmark_timeline"] = True
@@ -533,6 +550,7 @@ class UnyxClient:
     def tweets(self, username: str, keyword: Optional[str] = None,
                count: int = 20):
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         user_info = self.user(username)
         uid = user_info["id"]
         vars_ = {
@@ -548,6 +566,7 @@ class UnyxClient:
 
     def followers(self, username: str, count: int = 20):
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         user_info = self.user(username)
         uid = user_info["id"]
         vars_ = {
@@ -560,6 +579,7 @@ class UnyxClient:
 
     def following(self, username: str, count: int = 20):
         self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
         user_info = self.user(username)
         uid = user_info["id"]
         vars_ = {
