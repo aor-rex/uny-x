@@ -297,11 +297,17 @@ class UnyxClient:
         if not self.load_cookies():
             return False
         try:
-            # Use UserByScreenName to test auth — the cookies include
-            # session info for our account
-            result = self._gql(
-                "UserByScreenName",
-                {"screen_name": "ryu_ngmi",
+            # extract user id from twid cookie (format: u=1234567890, URL-encoded)
+            from urllib.parse import unquote
+            twid = unquote(self._cookies.get("twid", ""))
+            user_id = twid.replace("u=", "") if twid.startswith("u=") else ""
+            if not user_id:
+                raise RuntimeError("no twid cookie — cookies might be invalid")
+
+            # verify session by fetching own profile
+            result = self._gql_get(
+                "UserByRestId",
+                {"userId": user_id,
                  "withSafetyModeUserFields": True},
                 USER_FEATURES,
                 {"fieldToggles": {"withAuxiliaryUserLabels": False}},
