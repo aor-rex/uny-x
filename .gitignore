@@ -4,3 +4,4 @@ __pycache__/
 .env
 cookies.json
 *.tw_session
+x.com_cookies.json
