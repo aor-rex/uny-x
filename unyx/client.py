@@ -12,8 +12,11 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
+
+from .x_client_transaction import ClientTransaction
 
 # ---------------------------------------------------------------------------
 # Constants  (from twikit — see .venv-x/lib/python3.13/site-packages/twikit/constants.py)
@@ -199,6 +202,40 @@ class UnyxClient:
         self._ct0: str = ""
         self._user_id: Optional[str] = None
         self._screen_name: Optional[str] = None
+        self._http: Optional[httpx.Client] = None
+        self._transaction = ClientTransaction()
+        self._tx_inited = False
+
+    def _ensure_tx(self):
+        """Initialize the X-Client-Transaction-Id provider if not already done."""
+        if not self._tx_inited:
+            ua = HEADERS_BASE.get("User-Agent", "")
+            self._transaction.init(user_agent=ua, cookies=self._cookies)
+            self._tx_inited = True
+
+    def _get_http(self) -> httpx.Client:
+        """Return a persistent httpx client with cookie jar for ct0 rotation."""
+        if self._http is None:
+            self._http = httpx.Client(
+                cookies=self._cookies,
+                follow_redirects=True,
+                timeout=30,
+            )
+        return self._http
+
+    def _update_ct0_from_response(self, resp: httpx.Response):
+        """Extract updated ct0 from response set-cookie headers."""
+        set_cookie = resp.headers.get("set-cookie", "")
+        for part in set_cookie.split(";"):
+            part = part.strip()
+            if part.startswith("ct0="):
+                new_ct0 = part[4:].strip()
+                if new_ct0 and new_ct0 != self._ct0:
+                    self._ct0 = new_ct0
+        # also check cookies in the client's jar
+        for cookie in self._get_http().cookies.jar:
+            if cookie.name == "ct0" and cookie.value != self._ct0:
+                self._ct0 = cookie.value
 
     # -- auth ----------------------------------------------------------------
 
@@ -263,15 +300,13 @@ class UnyxClient:
         """v1.1 API POST (form-encoded)."""
         h = self._headers()
         h["Content-Type"] = "application/x-www-form-urlencoded"
-        with httpx.Client() as client:
-            resp = client.request(
-                "POST", url,
-                headers=h,
-                cookies=self._cookies,
-                data=data,
-                follow_redirects=True,
-                timeout=30,
-            )
+        client = self._get_http()
+        resp = client.request(
+            "POST", url,
+            headers=h,
+            data=data,
+        )
+        self._update_ct0_from_response(resp)
         if resp.status_code != 200:
             raise RuntimeError(
                 f"X v1.1 error {resp.status_code}: {resp.text[:300]}"
@@ -280,15 +315,21 @@ class UnyxClient:
 
     def _request(self, method: str, url: str, **kwargs) -> dict:
         """Raw HTTP request with cookie auth."""
-        with httpx.Client() as client:
-            resp = client.request(
-                method, url,
-                headers=self._headers(),
-                cookies=self._cookies,
-                follow_redirects=True,
-                timeout=30,
-                **kwargs,
-            )
+        client = self._get_http()
+        headers = self._headers()
+
+        # add X-Client-Transaction-Id header
+        self._ensure_tx()
+        path = urlparse(url).path
+        tid = self._transaction.generate_transaction_id(method=method, path=path)
+        headers["X-Client-Transaction-Id"] = tid
+
+        resp = client.request(
+            method, url,
+            headers=headers,
+            **kwargs,
+        )
+        self._update_ct0_from_response(resp)
         if resp.status_code != 200:
             raise RuntimeError(
                 f"X API error {resp.status_code}: {resp.text[:300]}"
