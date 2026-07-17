@@ -5,3 +5,6 @@ __pycache__/
 cookies.json
 *.tw_session
 x.com_cookies.json
+*.egg-info/
+wipe.py
+unfollow_all.py
