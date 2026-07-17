@@ -778,7 +778,30 @@ class UnyxClient:
         return {"count": len(result_list), "conversations": result_list,
                 "raw": result}
 
-    # -- login stub ----------------------------------------------------------
+    def send_dm(self, username: str, text: str) -> dict:
+        """Send a DM to a user by screen_name."""
+        self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
+        user_info = self.user(username)
+        recipient_id = user_info["id"]
+        if not recipient_id:
+            return {"error": f"Could not resolve user: {username}"}
+        conversation_id = f"{self._user_id}-{recipient_id}"
+        url = "https://x.com/i/api/1.1/dm/new.json"
+        data = {
+            "text": text,
+            "conversation_id": conversation_id,
+            "recipient_id": recipient_id,
+        }
+        result = self._v11_post(url, data)
+        # Extract dm id from response
+        entries = result.get("entries", [])
+        dm_id = entries[0].get("message", {}).get("id", "") if entries else ""
+        return {
+            "dm_id": dm_id,
+            "text": text,
+            "recipient": username,
+        }
 
     def login(self, username: str, password: str) -> dict:
         raise RuntimeError(

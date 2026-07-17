@@ -1,56 +1,43 @@
-# uny-x — unofficial x client
+# uny-x
 
-talks to x's internal api directly. no twikit, no tweety, no official keys. just httpx and a cookies file.
+Unofficial X client using direct httpx against X's internal GraphQL and v1.1 APIs. No official API keys needed — uses browser cookies for auth.
 
-zero api fees. burner account friendly.
+## Setup
 
-## setup
+1. Export cookies from a logged-in X browser session (Firefox JSON format)
+2. Save as `cookies.json` or `x.com_cookies.json` in the project root
+3. Run any command — it auto-loads cookies and restores the session
 
 ```bash
-pip install -r requirements.txt
+python3 -m unyx.cli user @handle
+python3 -m unyx.cli timeline -n 10
+python3 -m unyx.cli post "hello world"
 ```
 
-export cookies from a logged-in x session (firefox json format) and save as `cookies.json` in the project root. that's auth — no login command needed.
+## Commands
 
-> cookies.json is gitignored. don't commit it.
+| Command | Description |
+|---------|-------------|
+| `login` | Auth from cookies (auto-detected) |
+| `post` | Post a tweet |
+| `reply` | Reply to a tweet |
+| `retweet` | Retweet |
+| `delete` | Delete your tweet |
+| `like` / `unlike` | Like/unlike |
+| `follow` / `unfollow` | Follow/unfollow |
+| `dm` | Send a DM |
+| `dms` | Read DM inbox |
+| `mentions` | Search for tweets mentioning you |
+| `read` | Get tweet details |
+| `user` | Get user profile |
+| `timeline` | Home timeline |
+| `search` | Search tweets |
+| `tweets` | Get user's tweets |
+| `bookmarks` | Get your bookmarks |
+| `following` / `followers` | Get following/followers |
 
-## usage
+## Limitations
 
-tweet ids or full urls both work.
+**DM inbox reading is unreliable** with cookie auth. Incoming DMs from accounts you don't follow may not appear in the inbox due to X's request filter and cookie session staleness. DM sending works fine.
 
-```
-reads:
-  uny-x user @handle           user profile
-  uny-x read TWEET_ID          tweet details
-  uny-x tweets @handle         user's tweets
-  uny-x search "query"         search tweets
-  uny-x timeline               home feed (following)
-  uny-x bookmarks              your bookmarks
-  uny-x followers @handle      who follows them
-  uny-x following @handle      who they follow
-
-writes:
-  uny-x post "text"            post a tweet
-  uny-x reply TWEET_ID "text"  reply
-  uny-x like TWEET_ID          like
-  uny-x unlike TWEET_ID        unlike
-  uny-x retweet TWEET_ID       retweet
-  uny-x delete TWEET_ID        delete your tweet
-  uny-x follow @handle         follow
-  uny-x unfollow @handle       unfollow
-
-options:
-  -n N    result count (default 20)
-```
-
-## how it works
-
-talks to x's internal graphql api — same endpoints x.com uses. no developer portal, no rate limit cards.
-
-reads are GET with json params. writes are POST with json body. follow/unfollow uses x's legacy v1.1 api.
-
-query ids come from twikit's source but verified manually. some endpoints that used to be get now need post (x changes stuff). handled.
-
-## why not xurl
-
-xurl uses the official x api v2. that costs money. uny-x uses the same internal api x.com itself uses. free, but fragile — query ids go stale, endpoints change, no guarantees.
+For reliable DM inbox access, use the official X API (OAuth 2.0) via tools like `xurl`.

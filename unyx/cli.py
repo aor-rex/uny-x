@@ -108,7 +108,7 @@ def _run(args) -> dict:
             return cl.unlike(extract_tweet_id(args.tweet_id))
 
         if args.command == "dm":
-            return {"error": "DM not yet implemented — coming soon"}
+            return cl.send_dm(extract_username(args.username), " ".join(args.text))
 
         if args.command == "follow":
             return cl.follow(extract_username(args.username))
