@@ -71,6 +71,12 @@ def main(argv: Optional[list[str]] = None) -> None:
     p_bookmarks = sub.add_parser("bookmarks", help="Get your bookmarks")
     p_bookmarks.add_argument("-n", type=int, default=20)
 
+    p_mentions = sub.add_parser("mentions", help="Get tweets mentioning you")
+    p_mentions.add_argument("-n", type=int, default=20)
+
+    p_dms = sub.add_parser("dms", help="Get DM inbox")
+    p_dms.add_argument("-n", type=int, default=20)
+
     args = parser.parse_args(argv)
     result = _run(args)
     print(json.dumps(result, indent=2, default=str))
@@ -128,7 +134,17 @@ def _run(args) -> dict:
         if args.command == "bookmarks":
             return cl.bookmarks(count=args.n)
 
+        if args.command == "mentions":
+            return cl.mentions(count=args.n)
+
+        if args.command == "dms":
+            return cl.dms(count=args.n)
+
         return {"error": f"Unknown command: {args.command}"}
 
     except Exception as exc:
         return {"error": str(exc)}
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

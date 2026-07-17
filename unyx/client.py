@@ -187,6 +187,66 @@ def _flatten_params(params: dict) -> dict:
     return flat
 
 
+def _extract_timeline_entries(result: dict) -> list:
+    """Extract tweet entry dicts from a timeline GraphQL response."""
+    try:
+        instructions = (
+            result.get("data", {})
+            .get("search_by_raw_query", {})
+            .get("search_timeline", {})
+            .get("timeline", {})
+            .get("instructions", [])
+        )
+    except AttributeError:
+        return []
+    for instr in instructions:
+        if instr.get("type") == "TimelineAddEntries":
+            return instr.get("entries", [])
+    return []
+
+
+def _parse_tweet_entry(entry: dict) -> dict | None:
+    """Parse a timeline entry into a readable tweet dict."""
+    try:
+        content = entry.get("content", {})
+        item = content.get("itemContent", {})
+        tweet_result = item.get("tweet_results", {}).get("result", {})
+        if not tweet_result:
+            return None
+        # Handle visibility wrapper
+        tweet = tweet_result.get("tweet", {}) if tweet_result.get("__typename") == "TweetWithVisibilityResults" else tweet_result
+        legacy = tweet.get("legacy", {})
+        user = (
+            tweet.get("core", {})
+            .get("user_results", {})
+            .get("result", {})
+        )
+        user_legacy = user.get("legacy", {})
+
+        return {
+            "id": legacy.get("id_str", tweet.get("rest_id", "")),
+            "text": legacy.get("full_text", ""),
+            "user": {
+                "id": user.get("rest_id", ""),
+                "screen_name": user_legacy.get("screen_name", ""),
+                "name": user_legacy.get("name", ""),
+                "avatar": user_legacy.get("profile_image_url_https", ""),
+            },
+            "created_at": legacy.get("created_at", ""),
+            "reply_count": legacy.get("reply_count", 0),
+            "retweet_count": legacy.get("retweet_count", 0),
+            "like_count": legacy.get("favorite_count", 0),
+            "is_quote": bool(legacy.get("is_quote_status")),
+            "quote_url": legacy.get("quoted_status_permalink", {}).get("expanded", ""),
+            "media": [
+                m.get("media_url_https", "") for m in legacy.get("entities", {}).get("media", [])
+                if m.get("type") == "photo"
+            ],
+        }
+    except (KeyError, TypeError, AttributeError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
@@ -207,11 +267,25 @@ class UnyxClient:
         self._tx_inited = False
 
     def _ensure_tx(self):
-        """Initialize the X-Client-Transaction-Id provider if not already done."""
+        """Initialize the X-Client-Transaction-Id provider if not already done.
+        If init fails (webpack chunk changed, etc.), continue without it."""
         if not self._tx_inited:
-            ua = HEADERS_BASE.get("User-Agent", "")
-            self._transaction.init(user_agent=ua, cookies=self._cookies)
-            self._tx_inited = True
+            try:
+                ua = HEADERS_BASE.get("User-Agent", "")
+                self._transaction.init(user_agent=ua, cookies=self._cookies)
+                self._tx_inited = True
+            except Exception:
+                # Transaction init is non-critical — continue without it
+                pass
+
+    def _get_tx_header(self, method: str, path: str) -> str | None:
+        """Generate X-Client-Transaction-Id if initialized, else None."""
+        if not self._tx_inited:
+            return None
+        try:
+            return self._transaction.generate_transaction_id(method=method, path=path)
+        except Exception:
+            return None
 
     def _get_http(self) -> httpx.Client:
         """Return a persistent httpx client with cookie jar for ct0 rotation."""
@@ -318,11 +392,12 @@ class UnyxClient:
         client = self._get_http()
         headers = self._headers()
 
-        # add X-Client-Transaction-Id header
+        # add X-Client-Transaction-Id header (non-critical)
         self._ensure_tx()
         path = urlparse(url).path
-        tid = self._transaction.generate_transaction_id(method=method, path=path)
-        headers["X-Client-Transaction-Id"] = tid
+        tid = self._get_tx_header(method=method, path=path)
+        if tid:
+            headers["X-Client-Transaction-Id"] = tid
 
         resp = client.request(
             method, url,
@@ -630,6 +705,78 @@ class UnyxClient:
         }
         result = self._gql("Following", vars_, FEATURES)
         return {"username": username, "raw": result}
+
+    def mentions(self, count: int = 20):
+        """Get tweets mentioning @ryu_ngmi via search."""
+        self._ensure_authed()
+        screen_name = self._screen_name or "ryu_ngmi"
+        random_delay(SHORT_MIN, SHORT_MAX)
+        vars_ = {
+            "rawQuery": f"@{screen_name}",
+            "count": count,
+            "querySource": "typed_query",
+            "product": "Latest",
+        }
+        result = self._gql("SearchTimeline", vars_, FEATURES)
+        # Extract readable mention entries from timeline
+        entries = _extract_timeline_entries(result)
+        mentions = []
+        for e in entries:
+            tweet = _parse_tweet_entry(e)
+            if tweet:
+                mentions.append(tweet)
+        return {"count": len(mentions), "mentions": mentions, "raw": result}
+
+    def dms(self, count: int = 20):
+        """Get DM inbox conversations."""
+        self._ensure_authed()
+        random_delay(SHORT_MIN, SHORT_MAX)
+        url = "https://x.com/i/api/1.1/dm/inbox_initial_state.json"
+        params = {
+            "include_mention_in_reply_to": "true",
+            "include_welcome_tweet": "false",
+            "include_trusted_friends": "false",
+            "include_conversation_info": "true",
+            "include_pinned_conversation_ids": "false",
+            "include_pinned_dm_info": "false",
+            "include_dm_alt_text": "false",
+            "dm_secret_conversations_enabled": "false",
+            "include_tombstone_state": "false",
+            "include_voice_dm": "false",
+        }
+        result = self._request("GET", url, params=params)
+        inbox = result.get("inbox_initial_state", {})
+        entries = inbox.get("entries", [])
+        # Build per-conversation view
+        conversations: dict[str, list] = {}
+        for entry in entries:
+            msg_data = entry.get("message", {}).get("message_data", {})
+            conv_id = entry.get("message", {}).get("conversation_id", "")
+            if not conv_id:
+                continue
+            sender_id = msg_data.get("sender_id", "")
+            text = msg_data.get("text", "")
+            created = msg_data.get("time", 0)
+            conversations.setdefault(conv_id, []).append({
+                "sender_id": sender_id,
+                "text": text,
+                "created_at": created,
+                "media": bool(msg_data.get("attachment")),
+            })
+        # Sort conversations by most recent message
+        sorted_convs = sorted(
+            conversations.items(),
+            key=lambda x: max(m["created_at"] for m in x[1]) if x[1] else 0,
+            reverse=True,
+        )
+        result_list = []
+        for conv_id, msgs in sorted_convs[:count]:
+            result_list.append({
+                "conversation_id": conv_id,
+                "messages": msgs[:5],  # last 5 per conversation
+            })
+        return {"count": len(result_list), "conversations": result_list,
+                "raw": result}
 
     # -- login stub ----------------------------------------------------------
 
