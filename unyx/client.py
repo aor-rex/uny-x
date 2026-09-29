@@ -5,6 +5,7 @@ GraphQL for most ops, v1.1 for friendships (follow/unfollow).
 No twikit / tweety dependency.
 """
 
+import base64
 import json
 import random
 import re
@@ -137,6 +138,8 @@ _GQL_GET = frozenset({
 # v1.1 endpoint URLs
 V11_FRIENDSHIPS_CREATE = f"https://{DOMAIN}/i/api/1.1/friendships/create.json"
 V11_FRIENDSHIPS_DESTROY = f"https://{DOMAIN}/i/api/1.1/friendships/destroy.json"
+V11_UPDATE_PROFILE = f"https://{DOMAIN}/i/api/1.1/account/update_profile.json"
+V11_UPDATE_PROFILE_IMAGE = f"https://{DOMAIN}/i/api/1.1/account/update_profile_image.json"
 
 # ---------------------------------------------------------------------------
 # helpers — single source in .utils (no duplicates)
@@ -619,6 +622,36 @@ class UnyxClient:
         }
         resp = self._v11_post(V11_FRIENDSHIPS_DESTROY, data)
         return {"unfollowed": username, "user_id": uid}
+
+    def set_name(self, name: str):
+        """Change profile display name (not @handle). Max 50 chars."""
+        name = name.strip()
+        if not name or len(name) > 50:
+            raise ValueError("Display name must be 1-50 characters.")
+        self._ensure_authed()
+        random_delay()
+        resp = self._v11_post(V11_UPDATE_PROFILE, {"name": name})
+        return {"name": resp.get("name", name)}
+
+    def set_avatar(self, path: str | Path):
+        """Change profile image from a local file.
+
+        The file is read in-memory and uploaded straight to X —
+        nothing is copied into the repo.
+        """
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(f"No such image file: {p}")
+        if p.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            raise ValueError("Avatar must be a jpg, png, webp or gif file.")
+        self._ensure_authed()
+        random_delay()
+        b64 = base64.b64encode(p.read_bytes()).decode()
+        resp = self._v11_post(V11_UPDATE_PROFILE_IMAGE, {"image": b64})
+        return {
+            "avatar": resp.get("profile_image_url_https", ""),
+            "screen_name": resp.get("screen_name", ""),
+        }
 
     # ----- reads (GET queries) ---------------------------------------------
 

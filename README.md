@@ -25,6 +25,8 @@ python3 -m unyx.cli post "hello world"
 | `delete` | Delete your tweet |
 | `like` / `unlike` | Like/unlike |
 | `follow` / `unfollow` | Follow/unfollow |
+| `name` | Change profile display name (not @handle) |
+| `avatar` | Change profile image from a local file |
 | `dm` | Send a DM |
 | `dms` | Read DM inbox |
 | `mentions` | Search for tweets mentioning you |

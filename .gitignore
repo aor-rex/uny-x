@@ -5,6 +5,10 @@ __pycache__/
 cookies.json
 *.tw_session
 x.com_cookies.json
+# never commit stray profile images (avatar cmd reads in-memory only)
+avatar.*
+profile_pic.*
+profile-image.*
 *.egg-info/
 wipe.py
 unfollow_all.py

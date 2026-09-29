@@ -44,6 +44,12 @@ def main(argv: Optional[list[str]] = None) -> None:
     p_unfollow = sub.add_parser("unfollow", help="Unfollow a user")
     p_unfollow.add_argument("username")
 
+    p_name = sub.add_parser("name", help="Change profile display name (not @handle)")
+    p_name.add_argument("text", nargs="+")
+
+    p_avatar = sub.add_parser("avatar", help="Change profile image from a local file")
+    p_avatar.add_argument("path", help="Path to jpg/png/webp/gif (read in-memory, never stored)")
+
     p_dm = sub.add_parser("dm", help="Send a DM (NYI)")
     p_dm.add_argument("username")
     p_dm.add_argument("text", nargs="+")
@@ -117,6 +123,12 @@ def _run(args) -> dict:
 
         if args.command == "unfollow":
             return cl.unfollow(extract_username(args.username))
+
+        if args.command == "name":
+            return cl.set_name(" ".join(args.text))
+
+        if args.command == "avatar":
+            return cl.set_avatar(args.path)
 
         if args.command == "read":
             return cl.read(extract_tweet_id(args.tweet_id))
