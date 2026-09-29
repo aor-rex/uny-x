@@ -5,8 +5,11 @@ import re
 import time
 from pathlib import Path
 
-MIN_DELAY = 0.2   # 200ms
-MAX_DELAY = 3.0   # 3s
+MIN_DELAY = 30.0  # writes: human-like 30-90s
+MAX_DELAY = 90.0
+
+SHORT_MIN = 2.0  # reads: 2-5s
+SHORT_MAX = 5.0
 
 
 def random_delay(min_s: float = MIN_DELAY, max_s: float = MAX_DELAY) -> None:

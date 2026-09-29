@@ -16,9 +16,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     # --- auth ---
-    p_login = sub.add_parser("login", help="Auth using cookies (export from browser)")
-    p_login.add_argument("username")
-    p_login.add_argument("password", nargs="?")
+    p_login = sub.add_parser("login", help="Show cookie-auth instructions")
 
     # --- actions ---
     p_post = sub.add_parser("post", help="Post a tweet")
@@ -87,7 +85,11 @@ def _run(args) -> dict:
 
     try:
         if args.command == "login":
-            return cl.login(args.username, args.password or "")
+            return {
+                "instructions": "Export cookies from a logged-in browser session "
+                "as Firefox JSON, save to cookies.json in the project root, "
+                "then run any command."
+            }
 
         if args.command == "post":
             return cl.post(" ".join(args.text))

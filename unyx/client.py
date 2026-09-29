@@ -139,42 +139,19 @@ V11_FRIENDSHIPS_CREATE = f"https://{DOMAIN}/i/api/1.1/friendships/create.json"
 V11_FRIENDSHIPS_DESTROY = f"https://{DOMAIN}/i/api/1.1/friendships/destroy.json"
 
 # ---------------------------------------------------------------------------
-# helpers
+# helpers — single source in .utils (no duplicates)
 # ---------------------------------------------------------------------------
 
-MIN_DELAY = 30.0
-MAX_DELAY = 90.0
-
-SHORT_MIN = 2.0
-SHORT_MAX = 5.0
-
-
-def random_delay(min_s: float = MIN_DELAY, max_s: float = MAX_DELAY) -> None:
-    time.sleep(random.uniform(min_s, max_s))
-
-
-_TWEET_URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?(?:x\.com|twitter\.com)/\w+/status/(\d+)"
+from .utils import (
+    MIN_DELAY,
+    MAX_DELAY,
+    SHORT_MIN,
+    SHORT_MAX,
+    random_delay,
+    extract_tweet_id,
+    extract_username,
+    RateLimitHandler,
 )
-
-
-def extract_tweet_id(value: str) -> str:
-    m = _TWEET_URL_RE.search(value)
-    if m:
-        return m.group(1)
-    if value.isdigit():
-        return value
-    raise ValueError(f"Can't extract tweet ID from: {value}")
-
-
-_USERNAME_RE = re.compile(r"^@?(\w{1,15})$")
-
-
-def extract_username(value: str) -> str:
-    m = _USERNAME_RE.match(value)
-    if m:
-        return m.group(1)
-    raise ValueError(f"Invalid username: {value}")
 
 
 def _flatten_params(params: dict) -> dict:
@@ -265,18 +242,41 @@ class UnyxClient:
         self._http: Optional[httpx.Client] = None
         self._transaction = ClientTransaction()
         self._tx_inited = False
+        self._tx_failed_at: float = 0.0
+        self._rate = RateLimitHandler()
+
+    def close(self):
+        """Close the persistent httpx client."""
+        if self._http is not None:
+            try:
+                self._http.close()
+            except Exception:
+                pass
+            self._http = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
 
     def _ensure_tx(self):
         """Initialize the X-Client-Transaction-Id provider if not already done.
-        If init fails (webpack chunk changed, etc.), continue without it."""
-        if not self._tx_inited:
-            try:
-                ua = HEADERS_BASE.get("User-Agent", "")
-                self._transaction.init(user_agent=ua, cookies=self._cookies)
-                self._tx_inited = True
-            except Exception:
-                # Transaction init is non-critical — continue without it
-                pass
+        If init fails (webpack chunk changed, etc.), back off 10 min before
+        retrying so we don't hammer X on every request."""
+        import time as _time
+        if self._tx_inited:
+            return
+        if _time.time() - self._tx_failed_at < 600:
+            return
+        try:
+            ua = HEADERS_BASE.get("User-Agent", "")
+            self._transaction.init(user_agent=ua, cookies=self._cookies)
+            self._tx_inited = True
+        except Exception:
+            # Transaction init is non-critical — continue without it
+            self._tx_failed_at = _time.time()
 
     def _get_tx_header(self, method: str, path: str) -> str | None:
         """Generate X-Client-Transaction-Id if initialized, else None."""
@@ -298,18 +298,13 @@ class UnyxClient:
         return self._http
 
     def _update_ct0_from_response(self, resp: httpx.Response):
-        """Extract updated ct0 from response set-cookie headers."""
-        set_cookie = resp.headers.get("set-cookie", "")
-        for part in set_cookie.split(";"):
-            part = part.strip()
-            if part.startswith("ct0="):
-                new_ct0 = part[4:].strip()
-                if new_ct0 and new_ct0 != self._ct0:
-                    self._ct0 = new_ct0
-        # also check cookies in the client's jar
-        for cookie in self._get_http().cookies.jar:
-            if cookie.name == "ct0" and cookie.value != self._ct0:
-                self._ct0 = cookie.value
+        """Sync ct0 from the persistent client's cookie jar (X rotates it)."""
+        try:
+            jar_ct0 = self._get_http().cookies.get("ct0", "")
+        except Exception:
+            jar_ct0 = ""
+        if jar_ct0 and jar_ct0 != self._ct0:
+            self._ct0 = jar_ct0
 
     # -- auth ----------------------------------------------------------------
 
@@ -375,12 +370,20 @@ class UnyxClient:
         h = self._headers()
         h["Content-Type"] = "application/x-www-form-urlencoded"
         client = self._get_http()
-        resp = client.request(
+        resp: httpx.Response = client.request(
             "POST", url,
             headers=h,
             data=data,
         )
         self._update_ct0_from_response(resp)
+        if resp.status_code == 429:
+            self._rate.wait()
+            resp = client.request(
+                "POST", url,
+                headers=h,
+                data=data,
+            )
+            self._update_ct0_from_response(resp)
         if resp.status_code != 200:
             raise RuntimeError(
                 f"X v1.1 error {resp.status_code}: {resp.text[:300]}"
@@ -399,12 +402,25 @@ class UnyxClient:
         if tid:
             headers["X-Client-Transaction-Id"] = tid
 
-        resp = client.request(
-            method, url,
-            headers=headers,
-            **kwargs,
-        )
-        self._update_ct0_from_response(resp)
+        for attempt in (1, 2):
+            resp: httpx.Response = client.request(
+                method, url,
+                headers=headers,
+                **kwargs,
+            )
+            self._update_ct0_from_response(resp)
+            if resp.status_code == 429 and attempt == 1:
+                self._rate.wait()
+                continue
+            break
+        if resp.status_code == 429:
+            self._rate.reset()
+        else:
+            # success or other error — reset backoff counter on any non-429
+            try:
+                self._rate.reset()
+            except Exception:
+                pass
         if resp.status_code != 200:
             raise RuntimeError(
                 f"X API error {resp.status_code}: {resp.text[:300]}"
@@ -443,7 +459,16 @@ class UnyxClient:
             u = result.get("data", {}).get("user", {}).get("result", {})
             self._user_id = u.get("rest_id", "")
             core = u.get("core", {})
-            self._screen_name = core.get("screen_name", "ryu_ngmi")
+            legacy = u.get("legacy", {})
+            self._screen_name = (
+                legacy.get("screen_name")
+                or core.get("screen_name")
+                or ""
+            )
+            if not self._user_id or not self._screen_name:
+                raise RuntimeError(
+                    f"cookie session valid but profile parse failed: {json.dumps(u)[:300]}"
+                )
             print(f"  [uny-x] session restored — @{self._screen_name}",
                   file=sys.stderr)
             return True
@@ -480,7 +505,13 @@ class UnyxClient:
             .get("tweet_results", {})
             .get("result", {})
         )
-        return {"id": tweet.get("rest_id", ""), "text": text}
+        rest_id = tweet.get("rest_id", "")
+        if not rest_id:
+            raise RuntimeError(
+                "X silently dropped write (empty tweet_results). "
+                f"likely stale query id or missing tx header: {json.dumps(result)[:500]}"
+            )
+        return {"id": rest_id, "text": text}
 
     def reply(self, tweet_id: str, text: str):
         self._ensure_authed()
@@ -502,7 +533,13 @@ class UnyxClient:
             .get("tweet_results", {})
             .get("result", {})
         )
-        return {"id": tweet.get("rest_id", ""), "text": text,
+        rest_id = tweet.get("rest_id", "")
+        if not rest_id:
+            raise RuntimeError(
+                "X silently dropped write (empty tweet_results). "
+                f"likely stale query id or missing tx header: {json.dumps(result)[:500]}"
+            )
+        return {"id": rest_id, "text": text,
                 "reply_to": tweet_id}
 
     def like(self, tweet_id: str):
@@ -616,10 +653,12 @@ class UnyxClient:
         u = result.get("data", {}).get("user", {}).get("result", {})
         core = u.get("core", {})
         legacy = u.get("legacy", {})
+        screen_name = legacy.get("screen_name") or core.get("screen_name", username)
+        name = legacy.get("name") or core.get("name", "")
         return {
             "id": u.get("rest_id", ""),
-            "screen_name": core.get("screen_name", username),
-            "name": core.get("name", ""),
+            "screen_name": screen_name,
+            "name": name,
             "description": legacy.get("description", ""),
             "followers_count": legacy.get("followers_count", 0),
             "following_count": legacy.get("friends_count", 0),
@@ -707,9 +746,11 @@ class UnyxClient:
         return {"username": username, "raw": result}
 
     def mentions(self, count: int = 20):
-        """Get tweets mentioning @ryu_ngmi via search."""
+        """Get tweets mentioning own handle via search."""
         self._ensure_authed()
-        screen_name = self._screen_name or "ryu_ngmi"
+        screen_name = self._screen_name
+        if not screen_name:
+            raise RuntimeError("could not resolve own handle for mentions")
         random_delay(SHORT_MIN, SHORT_MAX)
         vars_ = {
             "rawQuery": f"@{screen_name}",
@@ -771,9 +812,10 @@ class UnyxClient:
         )
         result_list = []
         for conv_id, msgs in sorted_convs[:count]:
+            msgs_sorted = sorted(msgs, key=lambda m: m["created_at"], reverse=True)
             result_list.append({
                 "conversation_id": conv_id,
-                "messages": msgs[:5],  # last 5 per conversation
+                "messages": msgs_sorted[:5],  # most recent 5 per conversation
             })
         return {"count": len(result_list), "conversations": result_list,
                 "raw": result}
@@ -786,7 +828,17 @@ class UnyxClient:
         recipient_id = user_info["id"]
         if not recipient_id:
             return {"error": f"Could not resolve user: {username}"}
+        # reuse existing conversation if we have one, else sender-recipient order
         conversation_id = f"{self._user_id}-{recipient_id}"
+        try:
+            inbox = self.dms(count=50)
+            for conv in inbox.get("conversations", []):
+                cid = conv.get("conversation_id", "")
+                if self._user_id in cid and recipient_id in cid:
+                    conversation_id = cid
+                    break
+        except Exception:
+            pass
         url = "https://x.com/i/api/1.1/dm/new.json"
         data = {
             "text": text,
