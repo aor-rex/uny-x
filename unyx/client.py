@@ -7,6 +7,7 @@ No twikit / tweety dependency.
 
 import base64
 import json
+import os
 import random
 import re
 import sys
@@ -312,8 +313,11 @@ class UnyxClient:
     # -- auth ----------------------------------------------------------------
 
     def load_cookies(self, path: str | Path = "") -> bool:
-        """Load cookies from a Firefox JSON-format file."""
-        p = Path(path) if path else COOKIES_PATH
+        """Load cookies from a Firefox JSON-format file.
+
+        Order: explicit path > UNYX_COOKIES env > ./cookies.json.
+        """
+        p = Path(path) if path else Path(os.environ.get("UNYX_COOKIES", "") or COOKIES_PATH)
         if not p.exists():
             return False
         with open(p) as f:
