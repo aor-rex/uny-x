@@ -217,6 +217,8 @@ def _parse_tweet_entry(entry: dict) -> dict | None:
             "reply_count": legacy.get("reply_count", 0),
             "retweet_count": legacy.get("retweet_count", 0),
             "like_count": legacy.get("favorite_count", 0),
+            "quote_count": legacy.get("quote_count", 0),
+            "view_count": int((legacy.get("views") or {}).get("count") or 0),
             "is_quote": bool(legacy.get("is_quote_status")),
             "quote_url": legacy.get("quoted_status_permalink", {}).get("expanded", ""),
             "media": [
@@ -696,6 +698,7 @@ class UnyxClient:
             "id": u.get("rest_id", ""),
             "screen_name": screen_name,
             "name": name,
+            "avatar": legacy.get("profile_image_url_https", ""),
             "description": legacy.get("description", ""),
             "followers_count": legacy.get("followers_count", 0),
             "following_count": legacy.get("friends_count", 0),
