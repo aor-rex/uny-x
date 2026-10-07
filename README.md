@@ -21,7 +21,7 @@ from unyx import UnyxClient
 
 with UnyxClient() as c:                       # UNYX_COOKIES env, or:
     c.login_from_cookies("/path/to/cookies.json")  # explicit file wins
-    me = c.user("ryu_ngmi")                   # profile
+    me = c.user("somehandle")                # profile
     box = c.mentions(20)                      # tweets mentioning you
     for m in box["mentions"]:
         print(m["id"], m["user"]["screen_name"], m["text"][:80])
