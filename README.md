@@ -20,7 +20,7 @@ point at it with `UNYX_COOKIES=/path/to/cookies.json` or pass it explicitly.
 from unyx import UnyxClient
 
 with UnyxClient() as c:                       # UNYX_COOKIES env, or:
-#   c.load_cookies("/path/to/cookies.json")  # explicit file wins
+    c.login_from_cookies("/path/to/cookies.json")  # explicit file wins
     me = c.user("ryu_ngmi")                   # profile
     box = c.mentions(20)                      # tweets mentioning you
     for m in box["mentions"]:

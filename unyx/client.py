@@ -443,9 +443,9 @@ class UnyxClient:
 
     # -- auth ----------------------------------------------------------------
 
-    def login_from_cookies(self) -> bool:
+    def login_from_cookies(self, path: str | Path = "") -> bool:
         """Verify cookies by fetching the authenticated user's profile."""
-        if not self.load_cookies():
+        if not self.load_cookies(path):
             return False
         try:
             # extract user id from twid cookie (format: u=1234567890, URL-encoded)
