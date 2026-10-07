@@ -1,8 +1,10 @@
 [project]
 name = "uny-x"
-version = "0.1.0"
-description = "Unofficial X client — human-like interaction via twikit"
+version = "2.0.0"
+description = "Unofficial X client — direct httpx against X internal API, cookie auth, no API keys"
+readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["x", "twitter", "scraper", "bot"]
 dependencies = ["httpx>=0.27", "beautifulsoup4>=4.12"]
 
 [project.scripts]
